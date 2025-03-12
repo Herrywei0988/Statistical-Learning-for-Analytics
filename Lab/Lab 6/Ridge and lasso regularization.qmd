@@ -1,0 +1,473 @@
+---
+format:
+  html:
+    embed-resources: true
+    toc: true
+title: 'Lab: Ridge and lasso regularization'
+---
+
+```{r}
+# install.packages("reticulate")
+```
+
+```{r}
+library(reticulate)
+
+```
+
+
+**Instructions**
+
+* Read and complete all exercises below in the provided `.qmd` notebook (or `.ipynb` file if you prefer, both files are identical aside from the formatting)
+
+**Submission:**
+
+* You need to upload ONE document to Canvas when you are done. 
+* A PDF (or HTML) of the completed form of this notebook
+* The final uploaded version should NOT have any code-errors present. 
+* All outputs must be visible in the uploaded version, including code-cell outputs, images, graphs, etc
+
+**Optional**: 
+
+* You can actually work in `R` now inside VS-code using the `.ipynb` format
+* Its quite easy to get working: [click here for instructions](https://www.practicaldatascience.org/html/jupyter_r_notebooks.html)
+* There are a few benefits to this 
+  * (1) You can work 100% in VS-Code (for both R and Python), no need to switch between VSC and R-studio
+  * (2) You can work through your cells one at a time and see the incremental progress, similar to using `.ipynb` with python or `rmd` in R-studio.
+* With Quarto's `convert` command, you can re-format and jump between the different file-formats. For example, 
+* `quarto convert HW-2.rmd` will convert the file to `HW-2.ipynb`
+* `quarto convert HW-2.ipynb` will convert the file to `HW-2.qmd`, which can be renamed `HW-2.rmd` or just opened in R-studio like any other `rmd` file, just like normal.
+* `quarto render HW-2.ipynb` will render the notebook (either R or Python) into an aesthetically pleasing output.
+
+**Useful resources**: 
+
+* [IRLP: Chapter-6 Demonstration ](see centralized notes on website)
+* [ISLR: Chapter-6 Demonstration](see centralized notes on website)
+* Both of these are also available on the ISLR website.
+
+## Import
+
+```{r}
+#| vscode: {languageId: r}
+#| label: import-islr
+require(ISLR)
+require(MASS)
+require(glmnet)
+require(leaps)
+set.seed(3315)
+```
+
+## Question-1: 
+
+In this exercise, we will predict the number of applications received using the other variables in the College data set.
+
+Source: ISLR ch. 6 #9abcd
+
+```{r}
+#| vscode: {languageId: r}
+#| label: look-at-college
+data(College)
+print(class(College))
+print(dim(College))
+print(head(College))
+```
+
+### Q1.a: 
+Split the data set into a training set and a test set.
+
+```{r}
+#| vscode: {languageId: r}
+#| label: split data into training and test set
+
+# Load libraries
+library(ISLR)  
+library(caTools)  # For splitting data
+
+# Set seed for reproducibility
+set.seed(1500)
+
+# Load the dataset
+data(College)
+
+# Create a split index 
+split = sample.split(College$Apps, SplitRatio = 0.8)
+
+# Create training and testing sets
+train_set = subset(College, split == TRUE)
+test_set = subset(College, split == FALSE)
+
+# Print dataset sizes
+print(dim(train_set))  
+print(dim(test_set))
+```
+
+
+### Q1.b: 
+Fit a linear model using least squares on the training set, and print the test error obtained.
+
+```{r}
+#| vscode: {languageId: r}
+#| label: fit linear model using least square
+
+# Fit a linear model using least squares on the training set
+lm_model <- lm(Apps ~ ., data = train_set)
+
+# Predict on the test set
+predictions <- predict(lm_model, newdata = test_set)
+
+# Calculate Test Error (Mean Squared Error)
+mse_test <- mean((test_set$Apps - predictions)^2)
+
+# Print the test error
+print(paste("Test MSE:", mse_test))
+```
+
+
+### Q1.c: 
+* Fit a ridge regression model on the training set, with $\lambda$ chosen by cross-validation. 
+* Plot the test MSE as a function of the log of the regularization parameter (i.e. log($\lambda$)) for several orders of magnitude.
+* Also report the test error obtained.
+
+```{r}
+#| vscode: {languageId: r}
+#| label: fit ridge regression model
+
+# Load packages
+library(glmnet)
+library(ggplot2)
+
+# Prepare data: Exclude the response variable from predictors
+X_train <- model.matrix(Apps ~ ., data = train_set)[,-1] 
+y_train <- train_set$Apps
+X_test <- model.matrix(Apps ~ ., data = test_set)[,-1]
+y_test <- test_set$Apps
+
+# Perform cross-validation to find the optimal lambda
+set.seed(1500)
+cv_ridge <- cv.glmnet(X_train, y_train, alpha = 0)  # alpha = 0 for Ridge
+
+# Extract the best lambda
+best_lambda <- cv_ridge$lambda.min
+print(paste("Optimal lambda:", best_lambda))
+
+# Fit the final Ridge model with the best lambda
+ridge_model <- glmnet(X_train, y_train, alpha = 0, lambda = best_lambda)
+
+# Predict on the test set
+ridge_predictions <- predict(ridge_model, newx = X_test)
+
+# Compute test error (MSE)
+ridge_mse <- mean((y_test - ridge_predictions)^2)
+print(paste("Test MSE:", ridge_mse))
+
+# Convert lambda values to log scale
+lambda_log <- log(cv_ridge$lambda)
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  Lambda_Log = lambda_log,
+  MSE = cv_ridge$cvm
+)
+
+# Find the log of the best lambda
+best_lambda_log <- log(best_lambda)
+
+# **Improved ggplot2 Plot with Larger Font & Bigger Size**
+ggplot(plot_data, aes(x = Lambda_Log, y = MSE)) +
+  geom_line(color = "blue", linewidth = 1.5) +  # Smooth blue line
+  geom_point(color = "blue", size = 2.5) + # Increase dot size
+  geom_vline(xintercept = best_lambda_log, color = "red", linetype = "dashed", linewidth = 1.5) +  # Best lambda line
+  labs(title = "Cross-Validation MSE vs Log(Lambda)",
+       x = "log(Lambda)",
+       y = "Mean Squared Error (MSE)") +
+  theme_minimal(base_size = 20) +  # **Increase global font size**
+  theme(panel.grid.major = element_line(color = "grey80", linetype = "dotted"),
+        plot.title = element_text(hjust = 0.5, size = 24, face = "bold"), 
+        axis.title = element_text(size = 20),
+        axis.text = element_text(size = 8))  
+
+
+```
+
+
+### Q1.d: 
+* Fit a lasso model on the training set, with $\lambda$ chosen by cross-validation. 
+* Again, Plot the MSE as a function of the log of the regularization parameter (i.e. log($\lambda$)) for several orders of magnitude.
+* Also plot the number of non-zero coefficient estimates.
+* Finally, report the test error obtained.
+
+```{r}
+#| vscode: {languageId: r}
+#| label: fit lasso model on trainging set
+
+# Load required libraries
+library(glmnet)
+library(ggplot2)
+
+# Prepare data: Exclude the response variable from predictors
+X_train <- model.matrix(Apps ~ ., data = train_set)[,-1]  
+y_train <- train_set$Apps
+X_test <- model.matrix(Apps ~ ., data = test_set)[,-1]
+y_test <- test_set$Apps
+
+# Perform cross-validation to select the best lambda for Lasso regression
+set.seed(1500)
+cv_lasso <- cv.glmnet(X_train, y_train, alpha = 1)  # alpha = 1 for Lasso
+
+# Extract the best lambda value
+best_lambda_lasso <- cv_lasso$lambda.min
+print(paste("Optimal lambda for Lasso:", best_lambda_lasso))
+
+# Fit the final Lasso model with the best lambda
+lasso_model <- glmnet(X_train, y_train, alpha = 1, lambda = best_lambda_lasso)
+
+# Make predictions on the test set
+lasso_predictions <- predict(lasso_model, newx = X_test)
+
+# Compute test error (MSE)
+lasso_mse <- mean((y_test - lasso_predictions)^2)
+print(paste("Test MSE for Lasso:", lasso_mse))
+
+# Convert lambda values to log scale
+lambda_log <- log(cv_lasso$lambda)
+
+# Create a dataframe for plotting MSE vs log(lambda)
+plot_data <- data.frame(
+  Lambda_Log = lambda_log,
+  MSE = cv_lasso$cvm
+)
+
+# Find the log of the best lambda
+best_lambda_log <- log(best_lambda_lasso)
+
+# Plot MSE vs log(lambda)
+ggplot(plot_data, aes(x = Lambda_Log, y = MSE)) +
+  geom_line(color = "blue", linewidth = 1.5) +  # MSE curve
+  geom_point(color = "blue", size = 2.5) + # Data points
+  geom_vline(xintercept = best_lambda_log, color = "red", linetype = "dashed", linewidth = 1.5) +  # Best lambda line
+  labs(title = "Lasso Regression: MSE vs Log(Lambda)",
+       x = "log(Lambda)",
+       y = "Mean Squared Error (MSE)") +
+  theme_minimal(base_size = 20) +  
+  theme(panel.grid.major = element_line(color = "grey80", linetype = "dotted"),
+        plot.title = element_text(hjust = 0.5, size = 20, face = "bold"),
+        axis.title = element_text(size = 22),
+        axis.text = element_text(size = 20))
+
+coef_data <- data.frame(
+  Lambda_Log = lambda_log,
+  Num_Nonzero_Coefs = colSums(as.matrix(coef(cv_lasso, s = "lambda.min")) != 0) - 1,  # Exclude intercept
+  row.names = NULL
+)
+
+
+# Plot number of nonzero coefficients vs log(lambda)
+ggplot(coef_data, aes(x = Lambda_Log, y = Num_Nonzero_Coefs)) +
+  geom_line(color = "darkgreen", linewidth = 1.5) +  
+  geom_point(color = "darkgreen", size = 2.5) +  
+  labs(title = "Nonzero Coefficients vs Log(Lambda)",
+       x = "log(Lambda)",
+       y = "Number of Nonzero Coefficients") +
+  theme_minimal(base_size = 20) +  
+  theme(panel.grid.major = element_line(color = "grey80", linetype = "dotted"),
+        plot.title = element_text(hjust = 0.5, size = 18, face = "bold"),
+        axis.title = element_text(size = 22),
+        axis.text = element_text(size = 20))
+
+```
+
+
+
+## Question-2: 
+
+Consider the __Boston__ data. We want to predict __medv__ from all other predictors, using the LASSO.
+
+### Q2.a
+Set up the LASSO and plot the trajectories of all coefficients. What are the last five variables to remain in the model? 
+
+```{r}
+#| vscode: {languageId: r}
+#| label: use boston data to set uo LASSO
+
+suppressPackageStartupMessages({
+  library(glmnet)
+  library(MASS)  # Contains the Boston dataset
+  library(ggplot2)
+  library(dplyr)
+  library(tidyr)
+})
+
+# Load the Boston dataset
+data("Boston")
+
+# Prepare data: Define predictors (X) and response variable (y)
+X <- model.matrix(medv ~ ., data = Boston)[,-1]  # Remove intercept column
+y <- Boston$medv
+
+# Perform LASSO regression with cross-validation
+set.seed(1500)
+lasso_model <- glmnet(X, y, alpha = 1)  # alpha = 1 for LASSO
+
+# Extract coefficient paths
+coefs <- as.matrix(coef(lasso_model))
+
+# Convert to data frame for visualization
+coefs_df <- as.data.frame(t(coefs))  # Transpose to get lambda values as rows
+coefs_df$lambda <- lasso_model$lambda  # Add lambda values
+
+# Convert to long format for ggplot (FIXED)
+coefs_long <- coefs_df %>%
+  pivot_longer(cols = -lambda, names_to = "Variable", values_to = "Coefficient")
+
+# Plot coefficient trajectories
+ggplot(coefs_long, aes(x = log(lambda), y = Coefficient, color = Variable)) +
+  geom_line() +
+  labs(title = "LASSO Coefficient Paths",
+       x = "log(Lambda)",
+       y = "Coefficient Value") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+# Identify the last five variables to remain in the model
+nonzero_counts <- apply(coefs, 1, function(x) sum(x != 0))  # Count nonzero coefficients
+last_five_lambda <- lasso_model$lambda[which(nonzero_counts == 5)[1]]  # Find the first lambda with 5 nonzero coefs
+last_five_vars <- rownames(coefs)[which(coefs[, which(lasso_model$lambda == last_five_lambda)] != 0)]
+
+# Print the last five variables
+print("Last five variables to remain in the LASSO model:")
+print(last_five_vars)
+
+```
+
+### Q2.b 
+Find the 1SE value of $\lambda$, using 10-fold cross-validation. What is the cross validation estimate for the residual standard error? 
+
+```{r}
+#| vscode: {languageId: r}
+#| label: find 1SE value
+
+
+# Load libraries
+library(glmnet)
+library(MASS)  # Contains the Boston dataset
+
+# Load the Boston dataset
+data("Boston")
+
+# Prepare data: Define predictors (X) and response variable (y)
+X <- model.matrix(medv ~ ., data = Boston)[,-1]  # Remove intercept column
+y <- Boston$medv
+
+# Perform LASSO regression with 10-fold cross-validation
+set.seed(1500)
+cv_lasso <- cv.glmnet(X, y, alpha = 1, nfolds = 10)  # 10-fold CV
+
+# Extract lambda.1se (1 standard error lambda)
+lambda_1se <- cv_lasso$lambda.1se
+print(paste("1SE Value of Lambda:", lambda_1se))
+
+# Compute the cross-validation estimate for residual standard error (RSE)
+mse_1se <- min(cv_lasso$cvm[cv_lasso$lambda == lambda_1se])  # Cross-validation MSE at lambda.1se
+rse_1se <- sqrt(mse_1se)  # Residual Standard Error (RSE)
+
+print(paste("Cross-validation estimate for Residual Standard Error (RSE):", rse_1se))
+
+```
+
+### Q2.c 
+Rescale all predictors so that their mean is zero and their standard deviation is 1. Then set up the LASSO  and plot the trajectories of all coefficients. 
+
+What are the last five variables to remain in the model? Compare  your answer to part a).
+
+```{r}
+#| vscode: {languageId: r}
+#| label: rescale all predictors
+
+# Load necessary libraries
+suppressPackageStartupMessages({
+  library(glmnet)
+  library(MASS)  # Contains the Boston dataset
+  library(ggplot2)
+  library(dplyr)
+  library(tidyr)
+})
+
+# Load the Boston dataset
+data("Boston")
+
+# Standardize the predictor variables
+X_scaled <- scale(Boston[, -which(names(Boston) == "medv")])  # Standardize all predictors
+y <- Boston$medv  # Response variable remains unchanged
+
+# Perform LASSO regression with cross-validation
+set.seed(1500)
+lasso_model_scaled <- glmnet(X_scaled, y, alpha = 1)  # alpha = 1 for LASSO
+
+# Extract coefficient paths
+coefs_scaled <- as.matrix(coef(lasso_model_scaled))
+
+# Convert to data frame for visualization
+coefs_df_scaled <- as.data.frame(t(coefs_scaled))  # Transpose to get lambda values as rows
+coefs_df_scaled$lambda <- lasso_model_scaled$lambda  # Add lambda values
+
+# Convert to long format for ggplot
+coefs_long_scaled <- coefs_df_scaled %>%
+  pivot_longer(cols = -lambda, names_to = "Variable", values_to = "Coefficient")
+
+# Plot coefficient trajectories
+ggplot(coefs_long_scaled, aes(x = log(lambda), y = Coefficient, color = Variable)) +
+  geom_line() +
+  labs(title = "LASSO Coefficient Paths (Standardized Data)",
+       x = "log(Lambda)",
+       y = "Coefficient Value") +
+  theme_minimal() +
+  theme(legend.position = "right")
+
+# Identify the last five variables to remain in the model
+nonzero_counts_scaled <- apply(coefs_scaled, 1, function(x) sum(x != 0))  # Count nonzero coefficients
+last_five_lambda_scaled <- lasso_model_scaled$lambda[which(nonzero_counts_scaled == 5)[1]]  # Find the first lambda with 5 nonzero coefs
+last_five_vars_scaled <- rownames(coefs_scaled)[which(coefs_scaled[, which(lasso_model_scaled$lambda == last_five_lambda_scaled)] != 0)]
+
+# Print the last five variables
+print("Last five variables to remain in the standardized LASSO model:")
+print(last_five_vars_scaled)
+
+```
+
+### Q2.d 
+Find the 1SE value of $\lambda$, using 10-fold cross-validation. What is the cross validation estimate for the residual standard error now? Does rescaling lead to a better performing model? 
+
+```{r}
+#| vscode: {languageId: r}
+#| label: find 1SE value using 10-fold cross-validation
+
+# Load libraries
+suppressPackageStartupMessages({
+  library(glmnet)
+  library(MASS)  # Contains the Boston dataset
+})
+
+# Load the Boston dataset
+data("Boston")
+
+# Standardize the predictor variables (excluding response variable)
+X_scaled <- scale(Boston[, -which(names(Boston) == "medv")])  # Standardize all predictors
+y <- Boston$medv  # Response variable remains unchanged
+
+# Perform LASSO regression with 10-fold cross-validation on standardized data
+set.seed(1500)
+cv_lasso_scaled <- cv.glmnet(X_scaled, y, alpha = 1, nfolds = 10)  # 10-fold CV
+
+# Extract lambda.1se (1 standard error lambda)
+lambda_1se_scaled <- cv_lasso_scaled$lambda.1se
+print(paste("1SE Value of Lambda (Standardized):", lambda_1se_scaled))
+
+# Compute the cross-validation estimate for residual standard error (RSE)
+mse_1se_scaled <- min(cv_lasso_scaled$cvm[cv_lasso_scaled$lambda == lambda_1se_scaled])  # CV MSE at lambda.1se
+rse_1se_scaled <- sqrt(mse_1se_scaled)  # Residual Standard Error (RSE)
+
+print(paste("Cross-validation estimate for Residual Standard Error (Standardized Data):", rse_1se_scaled))
+
+```
+
+The model did not perform better after scaling because the Residual Standard Error (RSE) remains unchanged. This indicates that glmnet() has already performed the standardization that can be done so there is no need to rescale the data set.
